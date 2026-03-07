@@ -1,81 +1,88 @@
 ﻿using System;
 using System.Diagnostics;
-using System.Linq;
-using System.Threading;
 using System.Numerics;
+using System.Threading;
 
 class Program
 {
     static void Main(string[] args)
     {
-        int n = 10000; 
-        Console.WriteLine($"Вычисление факториала {n}:");
+        int n;
+        while (!int.TryParse(Console.ReadLine(), out n) || n <= 0)
+        {
+            Console.Write("введите целое положительное число: ");
+        }
+        int threadCount = Environment.ProcessorCount;
 
-        // Последовательное 
+
         var swSeq = Stopwatch.StartNew();
         BigInteger seqResult = SequentialFactorial(n);
         swSeq.Stop();
-        //Console.WriteLine($"Последовательно: {seqResult} за {swSeq.ElapsedMilliseconds} мс");
-        Console.WriteLine($"Последовательно: за {swSeq.ElapsedMilliseconds} мс");
+        Console.WriteLine($"Последовательный: за {swSeq.ElapsedMilliseconds} мс");
+        //Console.WriteLine(seqResult);
 
-        // Параллельное 
+
+
         var swPar = Stopwatch.StartNew();
-        BigInteger parResult = ParallelFactorial(n, Environment.ProcessorCount);
-        swPar.Stop();
-        //Console.WriteLine($"Параллельно ({Environment.ProcessorCount} потоков): {parResult} за {swPar.ElapsedMilliseconds} мс");
-        Console.WriteLine($"Параллельно ({Environment.ProcessorCount} потоков): за {swPar.ElapsedMilliseconds} мс");
-        Console.WriteLine($"Ускорение: {swSeq.ElapsedMilliseconds / (double)swPar.ElapsedMilliseconds:F1} раз");
+        BigInteger parResult = ParallelFactorial(n, threadCount);
+        swPar.Stop();        
+        Console.WriteLine($"Параллельный ({threadCount} потоков): за {swPar.ElapsedMilliseconds} мс");
+        //Console.WriteLine(parResult);
         
-        Console.WriteLine("Нажмите Enter для выхода...");
-        Console.ReadLine();
     }
-    
 
-    static BigInteger SequentialFactorial(BigInteger n)
+    static BigInteger SequentialFactorial(int n)
     {
-        if (n <= 1) return 1;
         BigInteger result = 1;
-        for (BigInteger i = 2; i <= n; i++)
+        for (int i = 2; i <= n; i++)
         {
             result *= i;
         }
         return result;
     }
 
-    // каждый поток считает свой блок
-    static BigInteger ParallelFactorial(BigInteger n, int threadCount)
+    static BigInteger ParallelFactorial(int n, int threadCount)
     {
-        ThreadLocal<BigInteger> localResults = new ThreadLocal<BigInteger>(() => 1L, trackAllValues: true);
-        BigInteger blockSize = n / threadCount;
+        var localResults = new ThreadLocal<BigInteger>(() => 1, trackAllValues: true); 
+
         Thread[] threads = new Thread[threadCount];
+        int blockSize = n / threadCount;
+        int remainder = n % threadCount;
 
-        for (int i = 0; i < threadCount; i++)
+        for (int t = 0; t < threadCount; t++)
         {
-            BigInteger start = i * blockSize + 1;
-            BigInteger end = (i == threadCount - 1) ? n : (i + 1) * blockSize;
-            threads[i] = new Thread(() => ComputeBlock(start, end, localResults));
-            threads[i].Start();
+            int start = 2 + t * blockSize + (t < remainder ? t : remainder);
+            int end = start + blockSize - 1 + (t < remainder ? 1 : 0);
+            if (t == threadCount - 1) end = n; 
+
+            int threadStart = start, threadEnd = end;
+            threads[t] = new Thread(() =>
+            {
+                BigInteger local = 1;
+                for (int i = threadStart; i <= threadEnd; i++)
+                {
+                    local *= i;
+                }
+                localResults.Value = local;
+
+
+                //int id = Thread.CurrentThread.ManagedThreadId;
+                //Console.WriteLine($"Поток {id}: от {threadStart} до {threadEnd}");
+                //Console.WriteLine($"Поток {id}: от {threadStart} до {threadEnd}, промежуточный {local}");
+            });
+            threads[t].Start();
         }
 
-        // Сбор результатов
-        foreach (var thread in threads)
-            thread.Join();
+        foreach (Thread t in threads)
+            t.Join();
 
+        
         BigInteger total = 1;
-        foreach (var value in localResults.Values)
-            total *= value;
-
-        localResults.Dispose(); 
-        return total;
-    }
-
-    static void ComputeBlock(BigInteger start, BigInteger end, ThreadLocal<BigInteger> results)
-    {
-        BigInteger localResult = 1;
-        for (BigInteger i = start; i <= end; i++)
+        foreach (BigInteger res in localResults.Values)
         {
-            localResult *= i;
+            total *= res;
         }
-        results.Value = localResult;
+        localResults.Dispose();
+        return total;
     }
 }
