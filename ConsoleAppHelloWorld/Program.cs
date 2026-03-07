@@ -3,20 +3,27 @@ using System.Threading;
 
 class Program
 {
-    static void Main()
+    static void Main(string[] args)
     {
-        Thread myThread = new Thread(PrintHello);
-        
-        myThread.Start();
+        int coreCount = Environment.ProcessorCount;
+        Console.WriteLine($"{coreCount} ядер в системе");
 
-        Console.WriteLine("главный поток");
+        Thread[] threads = new Thread[coreCount];
+        for (int i = 0; i < coreCount; i++)
+        {
+            threads[i] = new Thread(Worker);
+            threads[i].Start();
+        }
 
-        myThread.Join();
-
+        foreach (Thread thread in threads)
+        {
+            thread.Join();
+        }
     }
 
-    static void PrintHello()
+    static void Worker()
     {
-        Console.WriteLine("фоновый поток: Здравствуй, мир");
+        int threadId = Thread.CurrentThread.ManagedThreadId;
+        Console.WriteLine($"Здравствуй, мир. ID потока: {threadId}");
     }
 }
