@@ -7,28 +7,52 @@ class Program
 {
     static void Main(string[] args)
     {
-        int n;
-        while (!int.TryParse(Console.ReadLine(), out n) || n <= 0)
-        {
-            Console.Write("введите целое положительное число: ");
-        }
-        int threadCount = Environment.ProcessorCount;
+        int num1 = 150000; //~10сек
+        int num2 = 300000; //~60сек
 
+        int k1 = Environment.ProcessorCount;
+        int k2 = k1 / 2, k3 = 2 * k1;
+        int[] threadCounts = {k1, k2, k3};
 
-        var swSeq = Stopwatch.StartNew();
-        BigInteger seqResult = SequentialFactorial(n);
-        swSeq.Stop();
-        Console.WriteLine($"Последовательный: за {swSeq.ElapsedMilliseconds} мс");
-        //Console.WriteLine(seqResult);
+        Console.WriteLine(" num      k    T1(мс)   Tp(мс)  Ускорение(S)  Эффективность(E)  Стоимость(C)");
+        //Сверхлинейное (superlinear) ускорение Sp(n)>p
+        PrintMetrics(num1, threadCounts);
+        PrintMetrics(num2, threadCounts);
 
-
-
-        var swPar = Stopwatch.StartNew();
-        BigInteger parResult = ParallelFactorial(n, threadCount);
-        swPar.Stop();        
-        Console.WriteLine($"Параллельный ({threadCount} потоков): за {swPar.ElapsedMilliseconds} мс");
-        //Console.WriteLine(parResult);
         
+        
+    }
+    static void PrintMetrics(int n, int[] ks)
+    {
+        double T1 = MeasureSeq(n); 
+
+        foreach (int k in ks)
+        {
+            double Tp = MeasurePar(n, k);  
+
+            double S = T1 / Tp;                    
+            double E = S / k;                              
+            double C = k * Tp;                         
+
+            Console.WriteLine($"{n,7} {k,4:F0} {T1,9:F2} {Tp,9:F2} {S,12:F2} {E,15:F3} {C,12:F2}");
+        }
+        Console.WriteLine();
+    }
+
+     static double MeasureSeq(int n)
+    {
+        var swSeq = Stopwatch.StartNew();
+        SequentialFactorial(n);
+        swSeq.Stop();
+        return swSeq.ElapsedMilliseconds;
+    }
+
+    static double MeasurePar(int n, int k)
+    {
+        var swPar = Stopwatch.StartNew();
+        ParallelFactorial(n, k); 
+        swPar.Stop();
+        return swPar.ElapsedMilliseconds;
     }
 
     static BigInteger SequentialFactorial(int n)
@@ -66,9 +90,6 @@ class Program
                 localResults.Value = local;
 
 
-                //int id = Thread.CurrentThread.ManagedThreadId;
-                //Console.WriteLine($"Поток {id}: от {threadStart} до {threadEnd}");
-                //Console.WriteLine($"Поток {id}: от {threadStart} до {threadEnd}, промежуточный {local}");
             });
             threads[t].Start();
         }
