@@ -1,109 +1,131 @@
 ﻿using System;
 using System.Diagnostics;
-using System.Numerics;
-using System.Threading;
+//последовательный и параллельный алгоритмы для вычисления  числа Пи с использованием пула потоков. 
+//Синхронизацию реализовать через CountdownEvent. Для реализованного параллельного алгоритма 
+//вычислить ускорение, эффективность и стоимость.
+//методом численного интегрирования 4/(1+x²)dx
 
 class Program
 {
     static void Main(string[] args)
     {
-        int num1 = 150000; //~10сек
-        int num2 = 300000; //~60сек
 
-        int k1 = Environment.ProcessorCount;
-        int k2 = k1 / 2, k3 = 2 * k1;
-        int[] threadCounts = {k1, k2, k3};
+        int k = Environment.ProcessorCount;
+        Console.WriteLine($"{k} потоков");
 
-        Console.WriteLine(" num      k    T1(мс)   Tp(мс)  Ускорение(S)  Эффективность(E)  Стоимость(C)");
-        //Сверхлинейное (superlinear) ускорение Sp(n)>p
-        PrintMetrics(num1, threadCounts);
-        PrintMetrics(num2, threadCounts);
+        long n = 1000000000; 
 
+        double T1 = MeasureSeq(n);
+        double Tp = MeasurePar(n, k);
         
+        double S = T1 / Tp;
+        double E = S / k;
+        double C = k * Tp;
+        
+        Console.WriteLine($"n={n}");
+        Console.WriteLine($"Последовательный T1 = {T1:F2}с");
+        Console.WriteLine($"Параллельный    Tp = {Tp:F2}с");
+        Console.WriteLine($"S={S:F2} E={E:F2} C={C:F2}");
         
     }
-    static void PrintMetrics(int n, int[] ks)
-    {
-        double T1 = MeasureSeq(n); 
 
-        foreach (int k in ks)
-        {
-            double Tp = MeasurePar(n, k);  
-
-            double S = T1 / Tp;                    
-            double E = S / k;                              
-            double C = k * Tp;                         
-
-            Console.WriteLine($"{n,7} {k,4:F0} {T1,9:F2} {Tp,9:F2} {S,12:F2} {E,15:F3} {C,12:F2}");
-        }
-        Console.WriteLine();
-    }
-
-     static double MeasureSeq(int n)
+    
+    static double MeasureSeq(long n)
     {
         var swSeq = Stopwatch.StartNew();
-        SequentialFactorial(n);
+        SequentialPi(n);
         swSeq.Stop();
-        return swSeq.ElapsedMilliseconds;
+        return swSeq.Elapsed.TotalSeconds;
     }
 
-    static double MeasurePar(int n, int k)
+    static double MeasurePar(long n, int k)
     {
         var swPar = Stopwatch.StartNew();
-        ParallelFactorial(n, k); 
+        ParallelPi(n, k); 
         swPar.Stop();
-        return swPar.ElapsedMilliseconds;
+        return swPar.Elapsed.TotalSeconds;
     }
 
-    static BigInteger SequentialFactorial(int n)
+    static double SequentialPi(long n)
     {
-        BigInteger result = 1;
-        for (int i = 2; i <= n; i++)
+        double h = 1.0 / n;
+        double sum = 0.0;
+
+        for (long i = 0; i < n; i++)
         {
-            result *= i;
+            double x = (i + 0.5) * h;
+            sum += 4.0 / (1.0 + x * x);
         }
-        return result;
+        //Console.WriteLine($" seq pi {sum*h}");
+        return sum * h;
+    }
+    
+    class ThreadData
+    {
+        public int Index { get; set; }
+        public long N { get; set; }
+        public double H { get; set; }
+        public double[]? PartialSums { get; set; }
+        public CountdownEvent? Countdown { get; set; }
     }
 
-    static BigInteger ParallelFactorial(int n, int threadCount)
+    static double ParallelPi(long n, int threadCount)
     {
-        var localResults = new ThreadLocal<BigInteger>(() => 1, trackAllValues: true); 
+        double h = 1.0 / n;
+        double[] partialSums = new double[threadCount];
 
-        Thread[] threads = new Thread[threadCount];
-        int blockSize = n / threadCount;
-        int remainder = n % threadCount;
-
-        for (int t = 0; t < threadCount; t++)
+        using (var countdownEvent = new CountdownEvent(threadCount)) 
         {
-            int start = 2 + t * blockSize + (t < remainder ? t : remainder);
-            int end = start + blockSize - 1 + (t < remainder ? 1 : 0);
-            if (t == threadCount - 1) end = n; 
-
-            int threadStart = start, threadEnd = end;
-            threads[t] = new Thread(() =>
+            for (int i = 0; i < threadCount; i++)
             {
-                BigInteger local = 1;
-                for (int i = threadStart; i <= threadEnd; i++)
+                var data = new ThreadData
                 {
-                    local *= i;
-                }
-                localResults.Value = local;
+                    Index = i,
+                    N = n,
+                    H = h,
+                    PartialSums = partialSums,
+                    Countdown = countdownEvent
+                };
+                ThreadPool.QueueUserWorkItem(Work, data);
+            }
 
+            countdownEvent.Wait();
+        } 
 
-            });
-            threads[t].Start();
-        }
+        double totalSum = 0.0;
+        foreach (double s in partialSums) totalSum += s;
+        double pi = totalSum * h;
 
-        foreach (Thread t in threads)
-            t.Join();
+        //Console.WriteLine($"Par sum={totalSum:F8}, pi={pi:F10}");
 
-        
-        BigInteger total = 1;
-        foreach (BigInteger res in localResults.Values)
+        return pi;
+    }
+
+    static void Work(object? obj)
+    {
+        var data = (ThreadData)obj!;
+        int threadIndex = data.Index;
+        long nLocal = data.N;  
+        double h = data.H;
+        double[] partialSums = data.PartialSums!;
+        CountdownEvent countdownEvent = data.Countdown!;
+
+        long start = (long)threadIndex * (nLocal / partialSums.Length);
+        long end = threadIndex == partialSums.Length - 1 ? nLocal : (long)(threadIndex + 1) * (nLocal / partialSums.Length);
+
+        //int threadId = Thread.CurrentThread.ManagedThreadId;
+        //Console.WriteLine($"Поток #{threadId}: шаги [{start}..{end}) ({end-start} шагов)");
+
+        double sum = 0.0;
+        for (long j = start; j < end; j++)
         {
-            total *= res;
+            double x = (j + 0.5) * h;
+            sum += 4.0 / (1.0 + x * x);
         }
-        localResults.Dispose();
-        return total;
+        partialSums[threadIndex] = sum;
+
+        //Console.WriteLine($"Поток #{threadId}: sum={sum}");
+
+        countdownEvent.Signal();
     }
 }
