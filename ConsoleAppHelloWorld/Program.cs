@@ -63,7 +63,17 @@ class Program
         return sum * h;
     }
     
-
+    static double PiTask(long s, long e, double h, int taskId)
+    {
+        //Console.WriteLine($"  task {taskId} на потоке {Thread.CurrentThread.ManagedThreadId} диапазон: {s}..{e}");
+        double localSum = 0.0;
+        for (long j = s; j < e; j++)
+        {
+            double x = (j + 0.5) * h;
+            localSum += 4.0 / (1.0 + x * x);
+        }
+        return localSum;
+    }
 
 
     static double ParallelPi(long n, int threadCount)
@@ -79,37 +89,20 @@ class Program
             long end;
 
             if (i == threadCount - 1)
-            {
-                // последняя задача забирает всё до n
                 end = n;
-            }
             else
-            {
                 end = start + chunk;
-            }
 
-            long s = start;
-            long e = end;
-            double capturedH = h;
-
-            tasks[i] = Task.Run(() =>
-            {
-                //Console.WriteLine($"  task {taskId} на потоке {Thread.CurrentThread.ManagedThreadId} диапазон: {s}..{e}");
-                double localSum = 0.0;
-                for (long j = s; j < e; j++)
-                {
-                    double x = (j + 0.5) * capturedH;
-                    localSum += 4.0 / (1.0 + x * x);
-                }
-                return localSum;
-            });
+            tasks[i] = new Task<double>(() => PiTask(start, end, h, taskId));
+            tasks[i].Start();  
         }
         
-        Task.WaitAll(tasks);
+        Task.WaitAll(tasks);  
         
         double total = 0.0;
         for (int i = 0; i < threadCount; i++)
             total += tasks[i].Result;
+            
         return total * h;
     }
 
