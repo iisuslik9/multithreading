@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Diagnostics;
-using System.Threading;
-using System.Threading.Tasks;
-//Написать многопоточное консольное приложение, реализующее параллельные алгоритмы
-// для вычисления числа Пи с использованием библиотеки TPL.Task.
-//методом численного интегрирования 4/(1+x²)dx
+
+//Написать многопоточное консольное приложение, 
+//реализующее параллельные алгоритмы для вычисления 
+//числа Пи с использованием библиотеки TPL.Parallel
+//методом Монте-Карло
 
 class Program
 {
@@ -49,61 +49,60 @@ class Program
         return swPar.Elapsed.TotalSeconds;
     }
 
-    static double SequentialPi(long n)
+    static double SequentialPi(long totalPoints)
     {
-        double h = 1.0 / n;
-        double sum = 0.0;
+         long hits = 0;
+        Random rand = new Random();
 
-        for (long i = 0; i < n; i++)
+        for (long i = 0; i < totalPoints; i++)
         {
-            double x = (i + 0.5) * h;
-            sum += 4.0 / (1.0 + x * x);
+            double x = 2.0 * rand.NextDouble() - 1.0; // -1; 1
+            double y = 2.0 * rand.NextDouble() - 1.0; 
+
+            if (x * x + y * y <= 1.0)
+                hits++;
         }
-        //Console.WriteLine($" seq pi {sum*h}");
-        return sum * h;
+
+        return 4.0 * hits / totalPoints;
     }
     
-    static double PiTask(long s, long e, double h, int taskId)
+
+
+    static double ParallelPi(long totalPoints, int cores)
     {
-        //Console.WriteLine($"  task {taskId} на потоке {Thread.CurrentThread.ManagedThreadId} диапазон: {s}..{e}");
-        double localSum = 0.0;
-        for (long j = s; j < e; j++)
+        long pointsPerCore = totalPoints / cores;
+        long remainder = totalPoints % cores;
+        long[] localHits = new long[cores];
+
+
+        Parallel.For(0, cores, i =>
         {
-            double x = (j + 0.5) * h;
-            localSum += 4.0 / (1.0 + x * x);
-        }
-        return localSum;
-    }
-
-
-    static double ParallelPi(long n, int threadCount)
-    {
-        double h = 1.0 / n;
-        long chunk = n / threadCount;
-        var tasks = new Task<double>[threadCount];
-
-        for (int i = 0; i < threadCount; i++)
-        {
-            int taskId = i;
-            long start = i * chunk;
-            long end;
-
-            if (i == threadCount - 1)
-                end = n;
-            else
-                end = start + chunk;
-
-            tasks[i] = new Task<double>(() => PiTask(start, end, h, taskId));
-            tasks[i].Start();  
-        }
-        
-        Task.WaitAll(tasks);  
-        
-        double total = 0.0;
-        for (int i = 0; i < threadCount; i++)
-            total += tasks[i].Result;
+            Random rand = new Random(Guid.NewGuid().GetHashCode() ^ i);
             
-        return total * h;
-    }
+            // осатокк работе последнего ядра
+            long pointsToProcess = (i == cores - 1) ? pointsPerCore + remainder : pointsPerCore;
+            
+            long hits = 0;
+            for (long j = 0; j < pointsToProcess; j++)
+            {
+                double x = 2 * rand.NextDouble() -1;
+                double y = 2 * rand.NextDouble() -1;
+                if (x * x + y * y <= 1.0)
+                {
+                    hits++;
+                }
+            }
+            localHits[i] = hits; 
+        });
+
+        long totalHits = 0;
+        for (int i = 0; i < cores; i++)
+        {
+            totalHits += localHits[i];
+        }
+
+        return 4.0 * totalHits / totalPoints;
+
+    } 
 
 }
