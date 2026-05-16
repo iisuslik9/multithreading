@@ -1,108 +1,82 @@
-﻿using System;
-using System.Diagnostics;
+﻿//Написать многопоточное консольное приложение, реализующее параллельные алгоритмы для вычисления числа 
+//Пи с использованием асинхронного программирования
 
-//Написать многопоточное консольное приложение, 
-//реализующее параллельные алгоритмы для вычисления 
-//числа Пи с использованием библиотеки TPL.Parallel
-//методом Монте-Карло
+//методом численного интегрирования 4/(1+x^2)dx
+
+using System;
+using System.Diagnostics;
+using System.Threading.Tasks;
 
 class Program
 {
-    static void Main(string[] args)
+    const long N = 1000000000;
+
+    async static Task Main(string[] args)
     {
+        int cores = Environment.ProcessorCount;
+        Console.WriteLine($"{cores} потоков");
 
-        int k = Environment.ProcessorCount;
-        Console.WriteLine($"{k} потоков");
+        var seq = await MeasureAsync(() => Task.Run(() => PiTask(0, N , N)));
+        var par = await MeasureAsync(() => ParallelPiAsync(N, cores));
 
-        long n = 1000000000; 
+        double S = seq.Time / par.Time;
+        double E = S / cores;
+        double C = cores * par.Time;
 
-        double T1 = MeasureSeq(n);
-        double Tp = MeasurePar(n, k);
-        
-        double S = T1 / Tp;
-        double E = S / k;
-        double C = k * Tp;
-        
-        Console.WriteLine($"n={n}");
-        Console.WriteLine($"Последовательный T1 = {T1:F2}с");
-        Console.WriteLine($"Параллельный    Tp = {Tp:F2}с");
+        Console.WriteLine($"n={N}");
+
+        Console.WriteLine($"Последовательный T1 = {seq.Time} с pi = {seq.Result}");
+        Console.WriteLine($"Параллельный    Tp = {par.Time} с pi = {par.Result}" );
         Console.WriteLine($"S={S:F2} E={E:F2} C={C:F2}");
-        
     }
 
-    
-    static double MeasureSeq(long n)
+    static async Task<double> ParallelPiAsync(long n, int cores)
     {
-        var swSeq = Stopwatch.StartNew();
-        double res = SequentialPi(n);
-        swSeq.Stop();
-        Console.WriteLine($"Результат последовательного Pi: {res:F10}");
-        return swSeq.Elapsed.TotalSeconds;
-    }
+        long chunk = n / cores;
 
-    static double MeasurePar(long n, int k)
-    {
-        var swPar = Stopwatch.StartNew();
-        double res = ParallelPi(n, k); 
-        swPar.Stop();
-        Console.WriteLine($"Результат параллельного Pi: {res:F10}");
-        return swPar.Elapsed.TotalSeconds;
-    }
+        Task<double>[] tasks = new Task<double>[cores];
 
-    static double SequentialPi(long totalPoints)
-    {
-         long hits = 0;
-        Random rand = new Random();
-
-        for (long i = 0; i < totalPoints; i++)
-        {
-            double x = 2.0 * rand.NextDouble() - 1.0; // -1; 1
-            double y = 2.0 * rand.NextDouble() - 1.0; 
-
-            if (x * x + y * y <= 1.0)
-                hits++;
-        }
-
-        return 4.0 * hits / totalPoints;
-    }
-    
-
-
-    static double ParallelPi(long totalPoints, int cores)
-    {
-        long pointsPerCore = totalPoints / cores;
-        long remainder = totalPoints % cores;
-        long[] localHits = new long[cores];
-
-
-        Parallel.For(0, cores, i =>
-        {
-            Random rand = new Random(Guid.NewGuid().GetHashCode() ^ i);
-            
-            // осатокк работе последнего ядра
-            long pointsToProcess = (i == cores - 1) ? pointsPerCore + remainder : pointsPerCore;
-            
-            long hits = 0;
-            for (long j = 0; j < pointsToProcess; j++)
-            {
-                double x = 2 * rand.NextDouble() -1;
-                double y = 2 * rand.NextDouble() -1;
-                if (x * x + y * y <= 1.0)
-                {
-                    hits++;
-                }
-            }
-            localHits[i] = hits; 
-        });
-
-        long totalHits = 0;
         for (int i = 0; i < cores; i++)
         {
-            totalHits += localHits[i];
+            long start = i * chunk;
+            long end = start + chunk;
+            if (i == cores - 1)
+                end = n;
+            long capturedStart = start;
+            long capturedEnd = end;
+
+            tasks[i] = Task.Run(() => PiTask(capturedStart, capturedEnd, n));
         }
 
-        return 4.0 * totalHits / totalPoints;
+        double[] partials = await Task.WhenAll(tasks);
 
-    } 
+        double total = 0.0;
+        for (int i = 0; i < partials.Length; i++)
+            total += partials[i];
 
+        return total;
+    }
+
+    static double PiTask(long start, long end, long n)
+    {
+        double h = 1.0 / n;
+        double sum = 0.0;
+
+        for (long i = start; i < end; i++)
+        {
+            double x = (i + 0.5) * h;
+            sum += 4.0 / (1.0 + x * x);
+        }
+
+        return sum * h;
+    }
+
+    static async Task<(double Time, double Result)> MeasureAsync(Func<Task<double>> func)
+    {
+        Stopwatch sw = Stopwatch.StartNew();
+        double result = await func();
+        sw.Stop();
+
+        return (sw.Elapsed.TotalSeconds, result);
+    }
 }
